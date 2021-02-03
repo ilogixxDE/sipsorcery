@@ -470,7 +470,7 @@ namespace SIPSorcery.SIP.App
                 MediaSession = mediaSession;
                 MediaSession.OnRtpEvent += OnRemoteRtpEvent;
 
-                var sdpAnnounceAddress = NetServices.GetLocalAddressForRemote(serverEndPoint.Address);
+                var sdpAnnounceAddress = mediaSession.RtpBindAddress ?? NetServices.GetLocalAddressForRemote(serverEndPoint.Address);
 
                 var sdp = mediaSession.CreateOffer(sdpAnnounceAddress);
                 if (sdp == null)
@@ -520,23 +520,26 @@ namespace SIPSorcery.SIP.App
         /// </summary>
         public void Hangup()
         {
-            m_cts.Cancel();
-
-            if (MediaSession != null && !MediaSession.IsClosed)
+            if (IsCallActive)
             {
-                MediaSession?.Close("call hungup");
+                m_cts.Cancel();
+
+                if (MediaSession != null && !MediaSession.IsClosed)
+                {
+                    MediaSession?.Close("call hungup");
+                }
+
+                if (m_sipDialogue != null && m_sipDialogue.DialogueState != SIPDialogueStateEnum.Terminated)
+                {
+                    m_sipDialogue.Hangup(m_transport, m_outboundProxy);
+                    m_byeTransaction = m_sipDialogue.m_byeTransaction;
+                }
+
+                IsOnLocalHold = false;
+                IsOnRemoteHold = false;
+
+                CallEnded();
             }
-
-            if (m_sipDialogue != null && m_sipDialogue.DialogueState != SIPDialogueStateEnum.Terminated)
-            {
-                m_sipDialogue.Hangup(m_transport, m_outboundProxy);
-                m_byeTransaction = m_sipDialogue.m_byeTransaction;
-            }
-
-            IsOnLocalHold = false;
-            IsOnRemoteHold = false;
-
-            CallEnded();
         }
 
         /// <summary>
@@ -641,7 +644,7 @@ namespace SIPSorcery.SIP.App
                 else
                 {
                     // No SDP offer was included in the INVITE request need to wait for the ACK.
-                    var sdpAnnounceAddress = NetServices.GetLocalAddressForRemote(sipRequest.RemoteSIPEndPoint.GetIPEndPoint().Address);
+                    var sdpAnnounceAddress = MediaSession.RtpBindAddress ?? NetServices.GetLocalAddressForRemote(sipRequest.RemoteSIPEndPoint.GetIPEndPoint().Address);
                     var sdpOffer = MediaSession.CreateOffer(sdpAnnounceAddress);
                     sdp = sdpOffer.ToString();
                 }
@@ -1173,7 +1176,7 @@ namespace SIPSorcery.SIP.App
                 }
                 else
                 {
-                    reinviteRequest.Header.Contact = new List<SIPContactHeader>() { SIPContactHeader.GetDefaultSIPContactHeader() };
+                    reinviteRequest.Header.Contact = new List<SIPContactHeader>() { SIPContactHeader.GetDefaultSIPContactHeader(reinviteRequest.URI.Scheme) };
                 }
 
                 UACInviteTransaction reinviteTransaction = new UACInviteTransaction(m_transport, reinviteRequest, m_outboundProxy);
@@ -1490,7 +1493,7 @@ namespace SIPSorcery.SIP.App
             SIPRequest referRequest = m_sipDialogue.GetInDialogRequest(SIPMethodsEnum.REFER);
             referRequest.Header.ReferTo = referToUri.ToString();
             referRequest.Header.Supported = SIPExtensionHeaders.NO_REFER_SUB;
-            referRequest.Header.Contact = new List<SIPContactHeader> { SIPContactHeader.GetDefaultSIPContactHeader() };
+            referRequest.Header.Contact = new List<SIPContactHeader> { SIPContactHeader.GetDefaultSIPContactHeader(referRequest.URI.Scheme) };
 
             if (customHeaders != null && customHeaders.Length > 0)
             {
@@ -1514,7 +1517,7 @@ namespace SIPSorcery.SIP.App
         {
             SIPRequest referRequest = m_sipDialogue.GetInDialogRequest(SIPMethodsEnum.REFER);
             SIPURI targetUri = target.RemoteTarget.CopyOf();
-            referRequest.Header.Contact = new List<SIPContactHeader> { SIPContactHeader.GetDefaultSIPContactHeader() };
+            referRequest.Header.Contact = new List<SIPContactHeader> { SIPContactHeader.GetDefaultSIPContactHeader(referRequest.URI.Scheme) };
 
             SIPParameters replacesHeaders = new SIPParameters();
 
